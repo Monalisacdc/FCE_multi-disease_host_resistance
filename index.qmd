@@ -1,0 +1,36 @@
+---
+title: "Functional clustering of epidemic curves for multi-disease host resistance profiling: a case study for three foliar wheat diseases"
+resources:
+  - video_trigo.mp4
+---
+
+```{=html}
+<div class="hero-video-banner column-screen">
+  <video src="video_trigo.mp4" autoplay loop muted playsinline></video>
+  <video src="video_trigo.mp4" autoplay loop muted playsinline></video>
+  <video src="video_trigo.mp4" autoplay loop muted playsinline></video>
+  <video src="video_trigo.mp4" autoplay loop muted playsinline></video>
+  <video src="video_trigo.mp4" autoplay loop muted playsinline></video>
+</div>
+```
+
+# Data analysis
+
+Welcome to the companion website for the analysis code associated with the De Cól et al. (2026) paper. This repository contains the full R scripts and analytical pipelines used to characterize and classify resistance phenotypes of wheat cultivars to multiple foliar diseases.
+
+## Overview
+
+This website provides the analysis code associated with the De Cól et al. study on functional phenotyping of wheat resistance to multiple foliar diseases. The repository contains the R scripts and analytical pipelines used to model disease progress curves, classify resistance phenotypes, identify informative disease assessment stages, and evaluate multi-disease resistance in wheat cultivars.
+
+The study focused on three important foliar fungal diseases of wheat: leaf rust, powdery mildew, and tan spot. Using multi-environment field data collected across municipalities in Paraná and São Paulo, Brazil, from 2019 to 2025, disease progress curves were modeled along the Zadoks growth scale with hierarchical beta-regression generalized additive models. Functional distances among cultivar disease trajectories were then used to group cultivars according to similarity in epidemic development.
+
+The code available here reproduces the main analytical steps of the study, including model fitting, functional distance estimation, hierarchical clustering, comparison with final-severity-based classifications, extraction of epidemic descriptors such as disease onset and maximum epidemic velocity, identification of optimal assessment stages, and multi-disease resistance analysis using an index-based approach and Pareto front analysis.
+
+Overall, this repository supports reproducibility of the analyses and provides a workflow for using disease progress curves to characterize resistance phenotypes and identify wheat cultivars with resistance to multiple foliar diseases.
+
+Please navigate using the **Analysis** dropdown menu in the top bar to explore the detailed code for each specific disease.
+
+## Authors
+- Monalisa Cristina De Col (1,2), Edson Giovanni Kochinski(3), Ronaldo S. Ortiz(3), Helio Antonio Wood Joris(3), Erick De Wolf (1), Emerson Medeiros Del Ponte(2)
+(1) Department of Plant Pathology, Kansas State University, Manhattan, Kansas; (2) Departamento de Fitopatologia, Universidade Federal de Viçosa, Viçosa, Brazil; (3) Fundação ABC, Castro, Paraná, Brazil
+

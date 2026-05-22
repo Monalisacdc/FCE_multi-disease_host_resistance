@@ -1,0 +1,860 @@
+---
+title: "Multiobjective Analysis Code"
+format: html
+editor: visual
+---
+
+# Packages and Libraries
+
+```{r}
+library(writexl)
+library(gsheet)
+library(r4pde)
+library(tidyverse)
+library(ggdendro)
+library(ggrepel)
+library(cluster)
+library(mclust)   # adjustedRandIndex
+library(patchwork)
+```
+
+# Data Loading
+
+```{r}
+dat_raw <- gsheet2tbl("https://docs.google.com/spreadsheets/d/1KGolCesLlgn2TGS-YcuKtdqNVJ4OnkdG/edit?gid=1573255184#gid=1573255184")
+dat_raw <- dat_raw %>%
+  mutate(Genotype = recode(Genotype,
+                           "BRS Gralha Azul" = "BRS GAzul",
+                           "ORS Madreperola" = "ORS MPerola"))
+```
+
+# Data Cleaning and Preparation
+
+```{r}
+dat_all <- dat_raw %>%
+  mutate(
+    geno = str_squish(as.character(Genotype)),
+    env  = str_squish(as.character(Env)),
+    time = as.numeric(Zadoks),
+    tan_spot  = as.numeric(Tan_spot),
+    rust = as.numeric(rust),
+    powdery_mildew = as.numeric(powdery_mildew)) %>%
+  filter(
+    geno %in% Genotype,
+    !is.na(env), env != "",
+    !is.na(time),
+    !is.na(tan_spot),
+    !is.na(rust),
+    !is.na(powdery_mildew),) %>%
+  arrange(env, geno, time)
+```
+
+# Filtering Genotypes Evaluated Across Multiple Environments
+
+```{r}
+filtered_data <- dat_all %>%
+  #filter(!is.na(time)) %>%
+  #group_by(geno, env) %>%
+  #filter(n_distinct(time) >= 5) %>%
+  #ungroup() %>%
+  group_by(geno) %>%
+  filter(
+    n_distinct(Local) >= 4,
+    n_distinct(Year)  >= 3) %>%
+  ungroup()
+
+
+filtered_data %>%
+  distinct(geno) %>%
+  arrange(geno) |> 
+  print(n = Inf)
+n_distinct(filtered_data$geno)
+
+
+genotype_env_count <- filtered_data %>%
+  group_by(geno) %>%
+  summarise(
+    n_env   = n_distinct(env),
+    n_year  = n_distinct(Year),
+    n_local = n_distinct(Local),
+    .groups = "drop") %>%
+  arrange(desc(n_env))
+
+genotype_env_count
+#write_xlsx(genotype_env_count, "genotype_environment_count.xlsx")
+```
+
+# Filtering Environments with Final Severity \> 10%
+
+```{r}
+# PM
+final_sev_pm <- filtered_data %>%
+  group_by(env, geno) %>%
+  filter(time == max(time, na.rm = TRUE)) %>%
+  summarise(final_sev = max(powdery_mildew, na.rm = TRUE), .groups = "drop")
+
+env_valid_pm <- final_sev_pm %>%
+  group_by(env) %>%
+  summarise(max_final = max(final_sev, na.rm = TRUE), .groups = "drop") %>%
+  filter(max_final > 10)
+
+dat_env_pm <- filtered_data %>%
+  filter(env %in% env_valid_pm$env) %>%
+  arrange(env, geno, time)
+
+
+# TS
+final_sev_ts <- filtered_data %>%
+  group_by(env, geno) %>%
+  filter(time == max(time, na.rm = TRUE)) %>%
+  summarise(final_sev = max(Tan_spot, na.rm = TRUE), .groups = "drop")
+
+env_valid_ts <- final_sev_ts %>%
+  group_by(env) %>%
+  summarise(max_final = max(final_sev, na.rm = TRUE), .groups = "drop") %>%
+  filter(max_final > 10)
+
+dat_env_ts <- filtered_data %>%
+  filter(env %in% env_valid_ts$env) %>%
+  arrange(env, geno, time)
+
+
+# Rust
+final_sev_rust <- filtered_data %>%
+  group_by(env, geno) %>%
+  filter(time == max(time, na.rm = TRUE)) %>%
+  summarise(final_sev = max(rust, na.rm = TRUE), .groups = "drop")
+
+env_valid_rust <- final_sev_rust %>%
+  group_by(env) %>%
+  summarise(max_final = max(final_sev, na.rm = TRUE), .groups = "drop") %>%
+  filter(max_final > 10)
+
+dat_env_rust <- filtered_data %>%
+  filter(env %in% env_valid_rust$env) %>%
+  arrange(env, geno, time)
+
+```
+
+# Breeder Resistance Classes (Genotype-level)
+
+```{r}
+resistencia_tbl <- tribble(
+  ~geno,            ~rust_cl, ~ts_cl, ~pm_cl,
+  "Bar 10",         "MR",     "MR",   "MS",
+  "BRS GAzul",      "R",      "AS",   "R",
+  "BRS Sanhaco",    "R",      "AS",   "R",
+  "BRS TR133",      "R",      "AS",   "R",
+  "BRS TR733",      "R",      "AS",   "R",
+  "ORS 1403",       "MS",     "MR",   "R",
+  "ORS Feroz",      "R",      "MS",   "MS",
+  "ORS MPerola",    "R",      "MR",   "AS",
+  "ORS Selvagem",   "R",      "MS",   "R",
+  "ORS Senna",      "MR",     "AS",   "R",
+  "ORS Soberano",   "MS",     "MS",   "MS",
+  "ORS Turbo",      "MR",     "MR",   "MS",
+  "TBIO Aton",      "MR",     "AS",   "R",
+  "TBIO Audaz",     "MR",     "MR",   "AS",
+  "TBIO Blanc",     "AS",     "MR",   "MS",
+  "TBIO Calibre",   "R",      "MS",   "MS",
+  "TBIO Capaz",     "MR",     "MR",   "AS",
+  "TBIO Duque",     "AS",     "MS",   "AS",
+  "TBIO Motriz",    "MR",     "MR",   "MS",
+  "TBIO Ponteiro",  "AS",     "MS",   "R",
+  "TBIO Sossego",   "MS",     "MR",   "MS",
+  "TBIO Talisma",   "MR",     "MR",   "MR",
+  "TBIO Titan",     "MS",     "MS",   "MR",
+  "TBIO Toruk",     "MR",     "MS",   "MR",
+  "TBIO Trunfo",    "MS",     "MS",   "MS"
+) %>%
+  mutate(geno = str_squish(geno))
+cultivars <- resistencia_tbl$geno
+
+geno_class <- resistencia_tbl %>%
+  mutate(
+    geno = str_squish(geno),
+    pm_cl = factor(pm_cl, levels = c("R", "MR", "MS", "AS"), ordered = TRUE))
+```
+
+# Map Resistance Classes to Numeric Values
+
+```{r}
+map_res <- c(
+  "R" = 1,
+  "MR" = 2,
+  "MS" = 3,
+  "AS" = 4)
+
+cl_rust   <- setNames(unname(map_res[resistencia_tbl$rust_cl]), resistencia_tbl$geno)
+cl_mildew <- setNames(unname(map_res[resistencia_tbl$pm_cl]), resistencia_tbl$geno)
+cl_tan    <- setNames(unname(map_res[resistencia_tbl$ts_cl]), resistencia_tbl$geno)
+
+
+cl_rust <- setNames(
+  unname(map_res[resistencia_tbl$rust_cl]),
+  resistencia_tbl$geno)
+
+cl_mildew <- setNames(
+  unname(map_res[resistencia_tbl$pm_cl]),
+  resistencia_tbl$geno)
+
+cl_tan <- setNames(
+  unname(map_res[resistencia_tbl$ts_cl]),
+  resistencia_tbl$geno)
+
+```
+
+# Retaining Selected Genotypes and Joining Breeder Classes
+
+```{r}
+#ts
+dat_env_ts  <- dat_env_ts  %>%
+  mutate(geno = str_squish(geno))
+
+resistencia_tbl <- resistencia_tbl %>%
+  mutate(geno = str_squish(geno))
+
+dat_env_ts  <- dat_env_ts  %>%
+  filter(geno %in% resistencia_tbl$geno)
+
+dat_env_ts  <- dat_env_ts  %>%
+  left_join(resistencia_tbl, by = "geno")
+
+n_distinct(dat_env_ts$geno)
+
+#Rust
+
+dat_env_rust   <- dat_env_rust   %>%
+  mutate(geno = str_squish(geno))
+
+resistencia_tbl <- resistencia_tbl %>%
+  mutate(geno = str_squish(geno))
+
+dat_env_rust   <- dat_env_rust   %>%
+  filter(geno %in% resistencia_tbl$geno)
+
+dat_env_rust   <- dat_env_rust   %>%
+  left_join(resistencia_tbl, by = "geno")
+
+n_distinct(dat_env_rust$geno)
+
+# PM
+dat_env_pm<- dat_env_pm    %>%
+  mutate(geno = str_squish(geno))
+
+dat_env_pm<- dat_env_pm  %>%
+  mutate(geno = str_squish(geno))
+
+dat_env_pm<- dat_env_pm    %>%
+  filter(geno %in% resistencia_tbl$geno)
+
+dat_env_pm<- dat_env_pm    %>%
+  left_join(resistencia_tbl, by = "geno")
+
+n_distinct(dat_env_pm$geno)
+
+```
+
+# Aligning Disease Progress Curves to Zadoks Growth Scale
+
+```{r}
+#ts
+
+dae_min <- 20
+dae_max <- 90
+
+starts <- dat_env_ts %>%
+  filter(between(time, dae_min, dae_max)) %>%
+  group_by(env, geno) %>%
+  summarise(
+    t_pos = {
+      v <- time[Tan_spot > 0]
+      if (length(v) == 0) NA_real_ else min(v)},
+    t_zero_prev = {
+      if (is.na(t_pos)) NA_real_ else {
+        v0 <- time[time < t_pos]
+        if (length(v0) == 0) NA_real_ else max(v0)
+      }
+    },
+    t_start = dplyr::coalesce(t_zero_prev, t_pos),
+    .groups = "drop")
+
+dat_trim <- dat_env_ts %>%
+  filter(between(time, dae_min, dae_max)) %>%
+  left_join(starts %>% dplyr::select(env, geno, t_start), by = c("env", "geno")) %>%
+  filter(is.na(t_start) | time >= t_start) %>%
+  dplyr::select(-t_start) %>%
+  arrange(env, geno, time)
+
+# Convert to proportion for compare_curves()
+dat_ready1 <- dat_trim %>%
+  mutate(
+         yts = Tan_spot/100)
+n <- nrow(dat_ready1)
+
+dat_ready1$yts <- (dat_ready1$yts * (n - 1) + 0.5) / n
+################################Rust########################
+dae_min <- 20
+dae_max <- 90
+
+starts <- dat_env_rust %>%
+  filter(between(time, dae_min, dae_max)) %>%
+  group_by(env, geno) %>%
+  summarise(
+    t_pos = {
+      v <- time[rust > 0]
+      if (length(v) == 0) NA_real_ else min(v)},
+    t_zero_prev = {
+      if (is.na(t_pos)) NA_real_ else {
+        v0 <- time[time < t_pos]
+        if (length(v0) == 0) NA_real_ else max(v0)
+      }
+    },
+    t_start = dplyr::coalesce(t_zero_prev, t_pos),
+    .groups = "drop")
+
+dat_trim <- dat_env_rust %>%
+  filter(between(time, dae_min, dae_max)) %>%
+  left_join(starts %>% dplyr::select(env, geno, t_start), by = c("env", "geno")) %>%
+  filter(is.na(t_start) | time >= t_start) %>%
+  dplyr::select(-t_start) %>%
+  arrange(env, geno, time)
+
+# Convert to proportion for compare_curves()
+dat_ready2 <- dat_trim %>%
+  mutate(
+         yrust = rust/100)
+
+n <- nrow(dat_ready2)
+
+dat_ready2$yrust <- (dat_ready2$yrust * (n - 1) + 0.5) / n
+# PM
+dae_min <- 20
+dae_max <- 90
+
+starts <- dat_env_pm %>%
+  filter(between(time, dae_min, dae_max)) %>%
+  group_by(env, geno) %>%
+  summarise(
+    t_pos = {
+      v <- time[powdery_mildew > 0]
+      if (length(v) == 0) NA_real_ else min(v)},
+    t_zero_prev = {
+      if (is.na(t_pos)) NA_real_ else {
+        v0 <- time[time < t_pos]
+        if (length(v0) == 0) NA_real_ else max(v0)
+      }
+    },
+    t_start = dplyr::coalesce(t_zero_prev, t_pos),
+    .groups = "drop")
+
+dat_trim <- dat_env_pm %>%
+  filter(between(time, dae_min, dae_max)) %>%
+  left_join(starts %>% dplyr::select(env, geno, t_start), by = c("env", "geno")) %>%
+  filter(is.na(t_start) | time >= t_start) %>%
+  dplyr::select(-t_start) %>%
+  arrange(env, geno, time)
+
+# Convert to proportion for compare_curves()
+dat_ready3 <- dat_trim %>%
+  mutate(
+         ypm = powdery_mildew/100)
+n <- nrow(dat_ready3)
+
+dat_ready3$ypm <- (dat_ready3$ypm * (n - 1) + 0.5) / n
+```
+
+# Checking the Distribution of Classification
+
+```{r}
+#RUST
+dat_ready2 %>%
+  distinct(geno, rust_cl) %>%
+  count(rust_cl)
+#TS
+dat_ready1 %>%
+  distinct(geno, ts_cl) %>%
+  count(ts_cl)
+#pm
+dat_ready3 %>%
+  distinct(geno, pm_cl) %>%
+  count(pm_cl)
+```
+
+# Hierarchical Generalized Additive Model (HGAM) Fitting
+
+```{r}
+
+dat_ready1 <- dat_ready1 %>%
+  mutate(curve_id = interaction(env, geno, drop = TRUE))
+dat_ready2 <- dat_ready2 %>%
+  mutate(curve_id = interaction(env, geno, drop = TRUE))
+dat_ready3 <- dat_ready3 %>%
+  mutate(curve_id = interaction(env, geno, drop = TRUE))
+
+library(nlme)
+library(mgcv)
+
+dat_ready1 <- dat_ready1 %>%
+  mutate(
+    env = factor(env),
+    geno = factor(geno),
+    curve_id = factor(curve_id),
+    time = as.numeric(time))
+
+dat_ready2 <- dat_ready2 %>%
+  mutate(
+    env = factor(env),
+    geno = factor(geno),
+    curve_id = factor(curve_id),
+    time = as.numeric(time))
+
+dat_ready3 <- dat_ready3 %>%
+  mutate(
+    env = factor(env),
+    geno = factor(geno),
+    curve_id = factor(curve_id),
+    time = as.numeric(time))
+
+set.seed(1)
+mpm <- r4pde::compare_curves(
+  data          = dat_ready3,
+  time          = "time",
+  response      = "ypm",
+  treatment     = "geno",
+  environment   = "env",
+  cluster_k     = 4,
+  show_progress = TRUE,
+  perm_unit     = "geno",
+  perm_strata   = "env",
+  k_smooth = 10,
+  k_env = 4,
+  k_trt = 4,
+  gamma = 1.6)
+
+D_mildew <- mpm$distance
+
+set.seed(1)
+mts <- r4pde::compare_curves(
+  data          = dat_ready1,
+  time          = "time",
+  response      = "yts",
+  treatment     = "geno",
+  environment   = "env",
+  cluster_k     = 3,
+  show_progress = TRUE,
+  perm_unit     = "geno",
+  perm_strata   = "env",
+  k_smooth = 10,
+  k_env = 4,
+  k_trt = 4,
+  gamma = 1.6)
+
+D_tan <- mts$distance
+summary(mts$gam)
+
+set.seed(1)
+mlr <- r4pde::compare_curves(
+  data          = dat_ready2,
+  time          = "time",
+  response      = "yrust",
+  treatment     = "geno",
+  environment   = "env",
+  cluster_k     = 4,
+  show_progress = TRUE,
+  perm_unit     = "geno",
+  perm_strata   = "env",
+  k_smooth = 10,
+  k_env = 4,
+  k_trt = 4,
+  gamma = 1.6)
+
+D_rust <- mlr$distance
+```
+
+## 1. Helper Function: Check and Align Matrices
+
+This function receives several distance matrices and keeps only the cultivars that are present in all of them.
+
+```{r}
+align_distance_matrices <- function(...) {
+  mats <- list(...)
+  
+  # Intersection of cultivars
+  common_ids <- Reduce(intersect, lapply(mats, rownames))
+  
+  mats2 <- lapply(mats, function(M) {
+    M[common_ids, common_ids, drop = FALSE]
+  })
+  
+  return(mats2)
+}
+```
+
+## 2. Function: Distance to Resistant Group
+
+For each cultivar, calculate the average distance to the cultivars in the resistant cluster.
+
+```{r}
+distance_to_resistant_group <- function(D, clusters, resistant_cluster) {
+  
+  # Ensure alignment between vector and matrix names
+  ids <- intersect(rownames(D), names(clusters))
+  D <- D[ids, ids, drop = FALSE]
+  clusters <- clusters[ids]
+  
+  resistant_ids <- names(clusters)[clusters == resistant_cluster]
+  
+  if(length(resistant_ids) < 1) {
+    stop("No cultivar found in the resistant cluster.")
+  }
+  
+  # Average distance to the resistant group
+  dist_mean <- sapply(ids, function(g) {
+    mean(D[g, resistant_ids], na.rm = TRUE)
+  })
+  
+  # Optional: exclude self-distance if g is also in the resistant group
+  dist_mean2 <- sapply(ids, function(g) {
+    ref <- resistant_ids
+    if(g %in% ref && length(ref) > 1) ref <- setdiff(ref, g)
+    if(length(ref) == 0) return(NA_real_)
+    mean(D[g, ref], na.rm = TRUE)
+  })
+  
+  tibble(
+    genotype = ids,
+    dist_to_resistant = dist_mean2
+  )
+}
+
+```
+
+## 3. Align Matrices
+
+```{r}
+aligned <- align_distance_matrices(D_rust, D_mildew, D_tan)
+
+D_rust2   <- aligned[[1]]
+D_mildew2 <- aligned[[2]]
+D_tan2    <- aligned[[3]]
+# Keep only common cultivars in the cluster vectors as well
+common_ids <- Reduce(intersect, list(
+  rownames(D_rust2),
+  names(cl_rust),
+  names(cl_mildew),
+  names(cl_tan)
+))
+
+D_rust2   <- D_rust2[common_ids, common_ids]
+D_mildew2 <- D_mildew2[common_ids, common_ids]
+D_tan2    <- D_tan2[common_ids, common_ids]
+
+cl_rust   <- cl_rust[common_ids]
+cl_mildew <- cl_mildew[common_ids]
+cl_tan    <- cl_tan[common_ids]
+```
+
+## 4. Define the Resistant Cluster for Each Disease
+
+```{r}
+res_cluster_rust   <- 1
+res_cluster_mildew <- 1
+res_cluster_tan    <- 2
+```
+
+## 5. Distance to the Resistant Ideotype by Disease
+
+```{r}
+rust_tbl <- distance_to_resistant_group(
+  D = D_rust2,
+  clusters = cl_rust,
+  resistant_cluster = res_cluster_rust) %>%
+  rename(dist_rust = dist_to_resistant)
+
+mildew_tbl <- distance_to_resistant_group(
+  D = D_mildew2,
+  clusters = cl_mildew,
+  resistant_cluster = res_cluster_mildew) %>%
+  rename(dist_mildew = dist_to_resistant)
+
+tan_tbl <- distance_to_resistant_group(
+  D = D_tan2,
+  clusters = cl_tan,
+  resistant_cluster = res_cluster_tan) %>%
+  rename(dist_tan = dist_to_resistant)
+```
+
+## 6. Multi-disease Table
+
+```{r}
+multi_tbl <- rust_tbl %>%
+  left_join(mildew_tbl, by = "genotype") %>%
+  left_join(tan_tbl, by = "genotype")
+```
+
+## 7. Standardization and Multi-disease Index
+
+*Lower values indicate better multiobjective resistance.*
+
+```{r}
+library(dplyr)
+multi_tbl <- multi_tbl %>%
+  mutate(
+    z_rust   = as.numeric(scale(dist_rust)),
+    z_mildew = as.numeric(scale(dist_mildew)),
+    z_tan    = as.numeric(scale(dist_tan))) %>%
+  mutate(
+    mean_z = (z_rust + z_mildew + z_tan) / 3,
+    sd_z   = apply(dplyr::select(., z_rust, z_mildew, z_tan), 1, sd, na.rm = TRUE),
+    index_multi = mean_z + 0.5 * sd_z) %>%
+  arrange(index_multi) %>%
+  mutate(rank_multi = row_number())
+
+# lower index_multi = better
+multi_tbl
+```
+
+## 8. Pareto Front
+
+```{r}
+is_dominated <- function(i, M) {
+  any(apply(M, 1, function(row) {
+    all(row <= M[i, ]) && any(row < M[i, ])
+  }))
+}
+
+M <- as.matrix(multi_tbl[, c("dist_rust", "dist_mildew", "dist_tan")])
+
+dominated <- sapply(seq_len(nrow(M)), is_dominated, M = M)
+
+multi_tbl <- multi_tbl %>%
+  mutate(pareto = !dominated)
+
+multi_tbl %>%
+  arrange(index_multi) %>%
+  dplyr::select(genotype, dist_rust, dist_mildew, dist_tan, index_multi, rank_multi, pareto)
+
+
+```
+
+# Plots
+
+```{r}
+in1 = ggplot(multi_tbl, aes(x = mean_z, y = sd_z, label = genotype, color = pareto)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+  geom_point(size = 3) +
+  ggrepel::geom_text_repel(size = 3) +
+  theme_bw() +
+  labs(
+    x = "Mean standardized distance",
+    y = "Between-disease variability",
+    color = "Pareto front") +
+  scale_color_manual(
+    values = c(
+      "TRUE" = "#C11C84",
+      "FALSE" = "#f7c841"))
+
+
+
+library(scales)
+
+tri_tbl <- multi_tbl %>%
+  mutate(
+    rust_res   = 1 - rescale(dist_rust),
+    mildew_res = 1 - rescale(dist_mildew),
+    tan_res    = 1 - rescale(dist_tan)
+  ) %>%
+  rowwise() %>%
+  mutate(
+    total = rust_res + mildew_res + tan_res,
+    rust_w   = rust_res / total,
+    mildew_w = mildew_res / total,
+    tan_w    = tan_res / total
+  ) %>%
+  ungroup() %>%
+  mutate(
+    x = 0.5 * (2 * mildew_w + tan_w),
+    y = (sqrt(3) / 2) * tan_w
+  )
+
+triangle <- tibble(
+  x = c(0, 1, 0.5, 0),
+  y = c(0, 0, sqrt(3)/2, 0)
+)
+
+
+
+
+
+in2 = ggplot() +
+  geom_polygon(data = triangle, aes(x, y), fill = NA, color = "black") +
+  geom_point(data = tri_tbl, aes(x, y, color = index_multi, shape = pareto), size = 3) +
+  ggrepel::geom_text_repel(data = tri_tbl, aes(x, y, label = genotype), size = 3) +
+  annotate("text", x = 0, y = -0.03, label = "Rust", hjust = 0.5) +
+  annotate("text", x = 1, y = -0.03, label = "Mildew", hjust = 0.5) +
+  annotate("text", x = 0.5, y = sqrt(3)/2 + 0.04, label = "Tan spot", hjust = 0.5) +
+  theme_void()
+
+in2 = ggplot() +
+  geom_polygon(data = triangle, aes(x, y), fill = NA, color = "black") +
+  geom_point(data = tri_tbl, aes(x, y, color = index_multi, shape = pareto), size = 3) +
+  ggrepel::geom_text_repel(data = tri_tbl, aes(x, y, label = genotype), size = 3) +
+  annotate("text", x = 0, y = -0.03, label = "Leaf Rust", hjust = 0.5) +
+  annotate("text", x = 0.95, y = -0.04, label = "Powdery\nMildew", hjust = 0.5) +
+  annotate("text", x = 0.5, y = sqrt(3)/2 + 0.04, label = "Tan spot", hjust = 0.5) +
+  scale_color_gradientn(colors = c("#C11C84", "#f7c841"),
+                        name = "Multi-disease index") +
+  coord_cartesian(clip = "off") +
+  theme_void() +
+  theme(plot.margin = margin(10, 40, 20, 10))+
+  labs(shape = "Pareto front")
+
+(in1|in2)+plot_annotation(tag_levels = "A")
+# ggsave("multi.png", width = 16, height = 8
+#       , bg = "white", dpi = 1000)
+```
+
+```{r}
+mix_cols <- function(w1, w2, w3,
+                     col1 = "#C11C84",   # Leaf Rust
+                     col2 = "#f7c841",   # Powdery Mildew
+                     col3 = "#3A7CA5") { # Tan spot
+  
+  rgb1 <- col2rgb(col1)
+  rgb2 <- col2rgb(col2)
+  rgb3 <- col2rgb(col3)
+  
+  r <- w1 * rgb1[1, ] + w2 * rgb2[1, ] + w3 * rgb3[1, ]
+  g <- w1 * rgb1[2, ] + w2 * rgb2[2, ] + w3 * rgb3[2, ]
+  b <- w1 * rgb1[3, ] + w2 * rgb2[3, ] + w3 * rgb3[3, ]
+  
+  rgb(r, g, b, maxColorValue = 255)}
+
+tri_tbl <- tri_tbl %>%
+  mutate(
+    point_col = mix_cols(rust_w, mildew_w, tan_w))
+
+edge_gradient <- function(p1, p2, col1, col2, n = 200) {
+  t_vals <- seq(0, 1, length.out = n)
+  
+  x_vals <- (1 - t_vals) * p1[1] + t_vals * p2[1]
+  y_vals <- (1 - t_vals) * p1[2] + t_vals * p2[2]
+  
+  tibble::tibble(
+    x = x_vals[-n],
+    y = y_vals[-n],
+    xend = x_vals[-1],
+    yend = y_vals[-1],
+    col = grDevices::colorRampPalette(c(col1, col2))(n - 1)
+  )
+}
+
+v_rust <- c(0, 0)
+v_mild <- c(1, 0)
+v_tan  <- c(0.5, sqrt(3)/2)
+
+edge_rm <- edge_gradient(v_rust, v_mild, "#C11C84", "#f7c841")
+edge_rt <- edge_gradient(v_rust, v_tan,  "#C11C84", "#3A7CA5")
+edge_mt <- edge_gradient(v_mild, v_tan,  "#f7c841", "#3A7CA5")
+
+edges <- dplyr::bind_rows(edge_rm, edge_rt, edge_mt)
+tri_tbl <- tri_tbl %>%
+  arrange(genotype) %>%  # opcional (ordem alfabética)
+  mutate(id = as.numeric(factor(genotype)))
+
+in3 = ggplot() +
+  geom_segment(
+    data = edges,
+    aes(x = x, y = y, xend = xend, yend = yend, color = col),
+    linewidth = 2,
+    lineend = "round",
+    show.legend = FALSE) +
+  scale_color_identity() +
+  geom_point(
+    data = tri_tbl,
+    aes(x, y, shape = pareto),
+    size = 2.5,
+    color = tri_tbl$point_col,
+    position = position_jitter(width = 0.01, height = 0.01)) +
+  ggrepel::geom_text_repel(
+    data = tri_tbl,
+    aes(x, y, label = genotype),
+      size = 3,
+  box.padding = 0.3,
+  point.padding = 0.1,
+  force = 0.5,
+  segment.color = "gray40",   # 👈 linha
+  segment.size = 0.3,
+  segment.alpha = 0.7,
+   min.segment.length = 0) +
+  annotate("text", x = 0, y = -0.03, label = "Leaf Rust",
+           hjust = 0.5, color = "#C11C84") +
+  annotate("text", x = 0.95, y = -0.04, label = "Powdery\nMildew",
+           hjust = 0.5, color = "#f7c841") +
+  annotate("text", x = 0.5, y = sqrt(3)/2 + 0.04, label = "Tan Spot",
+           hjust = 0.5, color = "#3A7CA5") +
+  coord_cartesian(clip = "off") +
+  theme_void() +
+  theme(plot.margin = margin(10, 40, 20, 10))+
+     labs(shape = "Pareto front")
+ in3
+ (in1/in3)+plot_annotation(tag_levels = "A")
+ 
+# ggsave("multi2.png", width =9, height = 12
+#       , bg = "white", dpi = 1000)
+
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(patchwork)
+
+## REPLACE with the actual distance column names
+## example:
+## rust = dist_rust
+## mildew = dist_mildew
+## tan = dist_tan
+
+plot_pareto_2d <- function(dat, xvar, yvar, xlab, ylab) {
+  
+  x <- rlang::ensym(xvar)
+  y <- rlang::ensym(yvar)
+  
+  ## keep only Pareto points
+  pf <- dat %>%
+    filter(pareto == "Pareto" | pareto == 1 | pareto == TRUE) %>%
+    arrange(!!x, !!y)
+  
+  ggplot(dat, aes(x = !!x, y = !!y)) +
+    geom_point(aes(shape = pareto), color = dat$point_col, size = 3.5) + 
+    labs(x = xlab, y = ylab, shape = "Pareto") +
+    theme_classic()
+}
+
+p_rm <- plot_pareto_2d(
+  tri_tbl,
+  dist_rust, dist_mildew,
+  "Leaf Rust distance",
+  "Powdery Mildew distance"
+)
+
+p_rt <- plot_pareto_2d(
+  tri_tbl,
+  dist_rust, dist_tan,
+  "Leaf Rust distance",
+  "Tan Spot distance"
+)
+
+p_mt <- plot_pareto_2d(
+  tri_tbl,
+  dist_mildew, dist_tan,
+  "Powdery Mildew distance",
+  "Tan Spot distance"
+)
+
+(p_rm | p_rt | p_mt) + plot_annotation(tag_levels = "A")
+```

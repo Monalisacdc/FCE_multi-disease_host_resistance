@@ -1,0 +1,45 @@
+project:
+  type: website
+  output-dir: final_site
+  render:
+    - index.qmd
+    - ts_code_mcdc.qmd
+    - pm_code_mcdc.qmd
+    - rust_code_mcdc.qmd
+    - multi_index_mcdc.qmd
+
+website:
+  title: ""
+  navbar:
+    background: "#c47d25"
+    left:
+      - href: index.qmd
+        text: Home
+      - text: Analysis
+        menu:
+          - href: ts_code_mcdc.qmd
+            text: Tan Spot (TS)
+          - href: pm_code_mcdc.qmd
+            text: Powdery Mildew (PM)
+          - href: rust_code_mcdc.qmd
+            text: Leaf Rust (Rust)
+          - href: multi_index_mcdc.qmd
+            text: Multiobjective 
+
+format:
+  html:
+    theme:
+      light: [cosmo, custom.scss]
+      dark: [darkly, custom.scss]
+    css: styles.css
+    toc: true
+    toc-depth: 3
+    code-fold: show
+    code-tools: true
+    smooth-scroll: true
+
+execute:
+  warning: false
+  message: false
+  eval: true
+  freeze: auto

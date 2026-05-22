@@ -1,0 +1,92 @@
+/* Custom Professional Styling */
+
+:root {
+  --primary-color: #c47d25; /* Warm golden wheat color */
+  --secondary-color: #f7c841;
+  --accent-color: #C11C84;
+}
+
+.navbar {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Inter', 'Roboto', sans-serif;
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.quarto-title-block .quarto-title {
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--primary-color);
+}
+
+.sourceCode {
+  border-radius: 8px;
+  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+}
+
+.nav-link {
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+/* Hero Video Banner */
+.hero-video-banner {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr); /* Forces exactly 5 equal columns */
+  width: 100%;
+  height: 450px;
+  overflow: hidden;
+  margin-bottom: 2rem;
+  background-color: #000;
+}
+
+.hero-video-banner video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  opacity: 0.85;
+  transition: opacity 0.3s ease;
+}
+
+/* Flips alternating videos horizontally to create a seamless panorama effect */
+.hero-video-banner video:nth-child(even) {
+  transform: scaleX(-1);
+}
+
+.hero-video-banner video:hover {
+  opacity: 1;
+}
+
+/* --- Global Color Overrides for Links and Menus --- */
+a {
+  color: var(--primary-color);
+}
+a:hover {
+  color: #a3661b;
+}
+
+/* Dropdown Menu Items (the submenu items) */
+.dropdown-item {
+  color: #333 !important;
+}
+.dropdown-item.active, .dropdown-item:active {
+  background-color: var(--primary-color) !important;
+  color: #fff !important;
+}
+.dropdown-item:hover, .dropdown-item:focus {
+  background-color: rgba(196, 125, 37, 0.1) !important; /* light wheat background on hover */
+  color: var(--primary-color) !important;
+}
+
+/* Navbar Top-Level Menu Items (Home and Analysis) */
+.navbar-nav .nav-link {
+  color: #ffffff !important; /* Always white so it contrasts with the gold background */
+}
+.navbar-nav .nav-link:hover, .navbar-nav .nav-link.active, .navbar-nav .show > .nav-link {
+  color: #ffffff !important;
+  opacity: 0.8; /* Slight transparency effect on hover */
+}
